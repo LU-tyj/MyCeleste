@@ -10,7 +10,7 @@ namespace StateMachinePro
         protected static readonly int RunHash = Animator.StringToHash("Run");
         protected static readonly int JumpHash = Animator.StringToHash("Jump");
         
-        protected const float crossFadeDuration = 0.1f;
+        protected const float crossFadeDuration = 0.0f;
 
         protected BaseState(PlayerController player, Animator animator)
         {
