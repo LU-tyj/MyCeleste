@@ -1,0 +1,67 @@
+###################################
+# Unity generated folders
+###################################
+
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+
+###################################
+# Unity user-specific settings
+###################################
+
+UserSettings/
+
+###################################
+# IDE / Editor files
+###################################
+
+# Visual Studio / Rider
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+
+# JetBrains Rider
+.idea/
+*.DotSettings.user
+
+###################################
+# OS generated files
+###################################
+
+.DS_Store
+Thumbs.db
+
+###################################
+# Unity cache / meta exceptions
+###################################
+
+# 重要：不要忽略 meta 文件！
+!*.meta
+
+###################################
+# Optional: Addressables / AssetBundles
+###################################
+
+# 如果你以后用到再打开
+# ServerData/
+# StreamingAssets/aa/
+
+###################################
+# Large binary assets (optional)
+###################################
+
+# 如果你 Assets 里有大文件，可以单独忽略（按需）
+Assets/Art/
