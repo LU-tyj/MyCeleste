@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace StateMachinePro
+namespace Platformer
 {
     public class StateMachine
     {

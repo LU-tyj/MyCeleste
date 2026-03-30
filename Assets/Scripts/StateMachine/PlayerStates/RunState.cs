@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace StateMachinePro
+namespace Platformer
 {
     public class RunState : BaseState
     {
@@ -10,7 +10,7 @@ namespace StateMachinePro
 
         public override void OnEnter()
         {
-            animator.CrossFade(RunHash, crossFadeDuration);
+            // animator.CrossFade(RunHash, crossFadeDuration);
         }
 
         public override void FixedUpdate()

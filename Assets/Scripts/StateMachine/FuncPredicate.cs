@@ -1,6 +1,6 @@
 using System;
 
-namespace StateMachinePro
+namespace Platformer
 {
     public class FuncPredicate : IPredicate
     {

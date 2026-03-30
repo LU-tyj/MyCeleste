@@ -1,4 +1,4 @@
-namespace StateMachinePro
+namespace Platformer
 {
     public interface IState
     {
