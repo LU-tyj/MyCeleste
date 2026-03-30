@@ -10,7 +10,6 @@ namespace Platformer
 
         public override void OnEnter()
         {
-            Debug.Log("Entered jump state");
             animator.CrossFade(JumpHash, crossFadeDuration);
         }
 
