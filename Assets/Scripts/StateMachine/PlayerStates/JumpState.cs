@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace StateMachinePro
+namespace Platformer
 {
     public class JumpState : BaseState
     {
@@ -10,6 +10,7 @@ namespace StateMachinePro
 
         public override void OnEnter()
         {
+            Debug.Log("Entered jump state");
             animator.CrossFade(JumpHash, crossFadeDuration);
         }
 
