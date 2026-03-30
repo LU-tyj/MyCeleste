@@ -37,6 +37,7 @@ UserSettings/
 .idea/
 *.DotSettings.user
 
+.vscode
 ###################################
 # OS generated files
 ###################################
