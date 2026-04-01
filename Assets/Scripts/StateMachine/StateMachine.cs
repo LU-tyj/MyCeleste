@@ -17,7 +17,6 @@ namespace Platformer
             { 
                 ChangeState(transition.To);
             }
-            
             current.State?.Update();
         }
         

@@ -15,21 +15,26 @@ namespace Platformer
 
         [Header("Stats")]
         [SerializeField] private PlayerMovementStats movementStats;
+        
+        [Header("PlayerMovement")]
+        [SerializeField] private Vector2 movement;
+        private Vector2 playerVelocity;
+
+        private StateMachine stateMachine;
 
         private List<Timer> timers;
         private CountdownTimer jumpTimer;
         private CountdownTimer jumpBufferTimer;
         private CountdownTimer jumpCoyoteTimer;
 
-        [Header("PlayerMovement")]
-        [SerializeField] private Vector2 movement;
-
-        private StateMachine stateMachine;
-        private Vector2 playerVelocity;
-
         private bool isGrounded;
         private bool isCeil;
 
+        public CountdownTimer JumpTimer => jumpTimer;
+        public CountdownTimer JumpBufferTimer => jumpBufferTimer;
+        public CountdownTimer JumpCoyoteTimer => jumpCoyoteTimer;
+        public PlayerMovementStats Stats => movementStats;
+        
         #region Unity Methods
         private void Awake()
         {
@@ -55,21 +60,29 @@ namespace Platformer
 
         private void Update()
         {
+            // 1. 获取输入方向
             movement = input.Direction;
+            
+            // 2. 状态更新
             stateMachine.Update();
+            
+            // 3. 处理计时器
             HandleTimers();
-            UpdateAnimator();
         }
 
         private void FixedUpdate()
         {
+            // 1. 处理碰撞
             physicCheck.CheckCollisions();
 
+            // 2. 同步状态
             isGrounded = physicCheck.IsGrounded;
             isCeil     = physicCheck.IsCeil;
-
-            TryConsumeJumpBuffer();
+            
+            // 3. 状态机物理更新
             stateMachine.FixedUpdate();
+            
+            // 4. 物理应用
             ApplyMovement();
         }
 
@@ -117,17 +130,41 @@ namespace Platformer
             stateMachine = new StateMachine();
 
             var locomotionState = new LocomotionState(this, animator);
-            var jumpState = new JumpState(this, animator);
+            var jumpState       = new JumpState(this, animator);
+            var airState        = new AirState(this, animator);
 
-            At(locomotionState, jumpState,
-                new FuncPredicate(() => jumpTimer.IsRunning || ReturnToAir()));
+            // Locomotion → Jump：有跳跃缓冲且满足起跳条件
+            At(locomotionState, jumpState, new FuncPredicate(CanJump));
+    
+            // Locomotion → Air：离地但没有主动跳跃（走落平台）
+            At(locomotionState, airState,  new FuncPredicate(ReturnToAir));
+    
+            // Jump → Air：跳跃计时结束（顶点之后）
+            At(jumpState, airState, new FuncPredicate(() => !jumpTimer.IsRunning));
+    
+            // Air → Jump：空中消费土狼时间跳跃
+            At(airState, jumpState, new FuncPredicate(CanCoyoteJump));
+
+            // 任意 → Locomotion：落地且没有跳跃
             Any(locomotionState, new FuncPredicate(ReturnToLocomotionState));
 
             stateMachine.SetState(locomotionState);
         }
 
-        private bool ReturnToLocomotionState() => isGrounded && !jumpTimer.IsRunning;
-        private bool ReturnToAir() => !isGrounded && !jumpTimer.IsRunning;
+        private bool ReturnToLocomotionState() => isGrounded && !jumpTimer.IsRunning && !jumpBufferTimer.IsRunning;
+
+        private bool ReturnToAir()
+        {
+            return !isGrounded && !jumpTimer.IsRunning;
+        }
+
+        // 地面起跳条件（给状态机谓词用，纯查询）
+        private bool CanJump() =>
+            jumpBufferTimer.IsRunning && isGrounded && !jumpTimer.IsRunning;
+
+        // 土狼时间起跳条件
+        private bool CanCoyoteJump() =>
+            jumpBufferTimer.IsRunning && jumpCoyoteTimer.IsRunning && !jumpTimer.IsRunning;
 
         private void HandleTimers()
         {
@@ -143,14 +180,6 @@ namespace Platformer
         #endregion
 
         #region Jump
-        private void TryConsumeJumpBuffer()
-        {
-            if (jumpBufferTimer.IsRunning && isGrounded && !jumpTimer.IsRunning)
-            {
-                ExecuteJump();
-                jumpBufferTimer.Stop();
-            }
-        }
 
         public void HandleJump()
         {
@@ -186,30 +215,19 @@ namespace Platformer
             if (performed)
             {
                 jumpBufferTimer.Start();
-                TryJump();
             }
             else if (jumpTimer.IsRunning)
             {
                 jumpTimer.Stop();
             }
         }
-
-        private void TryJump()
-        {
-            bool canCoyote = jumpCoyoteTimer.IsRunning && !isGrounded && !jumpTimer.IsRunning;
-
-            if (canCoyote || isGrounded)
-            {
-                ExecuteJump();
-                jumpBufferTimer.Stop();
-            }
-        }
-
-        private void ExecuteJump()
+        
+        public void ApplyInitialJumpVelocity()
         {
             playerVelocity.y = movementStats.InitialJumpVelocity;
             jumpTimer.Start();
             jumpCoyoteTimer.Stop();
+            jumpBufferTimer.Stop();
         }
         #endregion
 
