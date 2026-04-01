@@ -62,7 +62,13 @@ namespace Utils
                 }
             }
         }
-        
+
+        public bool Compare(float value)
+        { 
+            if (IsRunning)
+                return Time <= value;
+            return false;
+        }
         public bool IsFinished() => Time <= 0;
         public void Reset() => Time = initialTime;
 
