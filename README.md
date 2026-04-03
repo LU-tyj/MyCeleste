@@ -15,266 +15,186 @@
 
 ## 2 RoadMap
 
-### 阶段0：项目约束与基础环境
-**实现时间** 0.5 days
-
-**实现目标**：
-建立统一物理规则，避免后续架构返工
-
-**TODO**：
-- 关闭 Rigidbody2D.simulated（或不使用 Rigidbody）
-- 确定坐标系统：
-  - 1 unit = 1 tile
-  - 使用 Vector2Int 作为逻辑坐标
-- 创建基础目录结构：
-  - /PhysicsCore
-  - /Gameplay
-
-**验收**：
-- 场景中无 Unity 物理参与
-- 能打印整数坐标（无 float 漂移）
-
----
-
-### 阶段1：Tilemap → Solid（碰撞数据生成）
-
-**实现时间** 1 day
-
-**实现目标**：
-将 Tilemap 转换为可用于碰撞检测的 AABB（Solid）
-
-**TODO**：
-新增文件：
-- Hitbox.cs
-  - struct Hitbox { int x, y, w, h }
-  - bool Overlaps(Hitbox)
-
-- Solid.cs
-  - Vector2Int position
-  - Hitbox hitbox
-
-- World.cs
-  - List\<Solid\> solids
-  - bool Collide(Hitbox)
-
-- TilemapConverter.cs
-  - Tilemap → bool[,]
-  - bool[,] → List\<Solid\>（每 tile 一个）
-
-- GizmoDrawer.cs（可选）
-  - 绘制 AABB
-
-实现内容：
-- 遍历 Tilemap
-- 生成 Solid(1x1)
-- 注册到 World
-
-**验收**：
-- Scene 中能看到所有 AABB（Gizmo）
-- 手动测试 Hitbox overlap 正确
-- World.Collide 返回正确结果
-- 通过Tilemap实现简单的世界代码化生成
-
----
-
-### 阶段2：Actor + MoveX（核心里程碑）
-
-**实现时间** 1~2 days
-
-**实现目标**：
-实现稳定的逐像素水平移动
-
-**TODO**：
-新增文件：
-- Actor.cs
-  - Vector2Int position
-  - Hitbox hitbox
-  - float xRemainder
-
-实现内容：
-- MoveX(float amount, Func<Hitbox,bool> collide)
-  - remainder 累积
-  - RoundToInt
-  - 逐像素 step 移动
-  - 碰撞即停止
-
-**验收**：
-- 向墙移动刚好停住
-- 高速移动不穿透
-- 无 jitter / 卡墙问题
-
----
-
-### 阶段3：MoveY + 重力系统
-
-**实现时间** 1 day
-
-**实现目标**：
-实现垂直运动（重力 + 碰撞）
-
-**TODO**：
-修改 Actor.cs：
-- float yRemainder
-- MoveY(float amount, Func<Hitbox,bool> collide)
-
-新增：
-- speedY（在 Player 或 Actor 中）
-
-实现内容：
-- speedY += gravity * dt
-- MoveY(speedY * dt)
-
-**验收**：
-- 角色自然下落
-- 精确落地（无嵌入/悬空）
-- 高速下落不穿地
-
----
-
-### 阶段4：Player 控制层
-
-**实现时间** 1 day
-
-**实现目标**：
-实现基础可玩角色控制
-
-**TODO**：
-新增文件：
-- Player.cs（继承 Actor）
-
-实现内容：
-- playerVelocity
-- 输入读取（左右移动）
-- 跳跃（设置 speedY）
-
-调用：
-- MoveX(playerVelocity.x * dt)
-- MoveY(playerVelocity.y * dt)
-
-**验收**：
-- 可以左右移动
-- 可以跳跃
-- 手感稳定，无穿透
-
----
-
-### 阶段5：Unity 适配层（显示与逻辑解耦）
-
-**实现时间** 0.5~1 day
-
-**实现目标**：
-Unity 仅作为表现层
-
-**TODO**：
-新增文件：
-- ActorView.cs
-  - 同步 transform.position = actor.position
-
-- SolidView.cs
-  - 同步位置
-
-- WorldBootstrap.cs
-  - 初始化 World
-  - 注册 Actor / Solid
-
-**验收**：
-- 修改 Actor 数据 → 画面同步
-- Unity 中无物理参与
-
----
-
-### 阶段6：Solid 推动 Actor（关键机制）
-
-**实现时间** 2 days
-
-**实现目标**：
-实现移动平台推动角色（Celeste核心）
-
-**TODO**：
-修改：
-- Solid.cs
-
-实现内容：
-- Solid.Move(dx, dy, world)
-  1. 找到接触 Actor
-  2. 先移动 Solid
-  3. 推动 Actor（调用 MoveX/MoveY 或强制位移）
-
-关键点：
-- 顺序必须正确
-- 避免 Actor 被夹入
-
-**验收**：
-- 平台移动时角色被带走
-- 不穿透、不抖动
-- 不丢失接触
-
----
-
-### 阶段7：Tile 合并优化（性能优化）
-
-**实现时间** 1~2 days
-
-**实现目标**：
-减少 Solid 数量，提高效率
-
-**TODO**：
-修改：
-- TilemapConverter.cs
-
-实现内容：
-- Greedy 合并矩形
-- 多 tile → 单个大 AABB
-
-**验收**：
-- Solid 数量显著减少
-- 碰撞结果完全一致
-
----
-
-### 阶段8：Celeste 手感增强
-
-**实现时间** 2~3 days
-
-**实现目标**：
-复刻 Celeste 操作手感
-
-**TODO**：
-
-1. Coyote Time
-   - 记录离地时间窗口
-
-2. Jump Buffer
-   - 缓存输入
-
-3. Corner Correction
-   - X/Y 自动修正避免卡边
-
-4. Dash（可选）
-
-**验收**：
-- 跳跃更宽容
-- 输入响应更自然
-- 边角不卡顿
-
----
-
-### 阶段9：系统扩展与重构
-
-**实现时间** 持续优化
-
-**实现目标**：
-提高系统扩展性
-
-**TODO**：
-- 状态机（Locomotion / Air / Dash）
-- ScriptableObject 参数配置
-- One-way platform
-- 动画系统接入
-
-**验收**：
-- 系统结构清晰
-- 可扩展性强
+| **Phase**                        | **时长** | **任务**                                                     | **交付物**                                        |
+| -------------------------------- | -------- | ------------------------------------------------------------ | ------------------------------------------------- |
+| **Phase 1** **搭建物理框架**     | 1d       | 实现  `PhysicsWorld.cs：Actor/Solid` 注册表 <br />定义  `PPU=16` 坐标系，整数 AABB 碰撞结构<br />实现  `Actor.MoveX/MoveY`（余数累计 + 逐像素步进）<br />实现  `BoxCast` 碰撞检测替代方案 | **Actor** **能在静态地形中移动且不穿透**          |
+| **Phase 2 Solid** **动态交互**   | 1d       | 实现  `Solid.Move(x,y)` 完整逻辑<br />实现  IsRiding 默认逻辑（站立于顶部）<br />实现  Carry（携带）与 Push（推送）分离 <br />实现  Squish 默认行为<br />处理  Collidable 临时关闭的 Layer 逻辑 | **角色能站在移动平台上被携带，能被推送至边缘**    |
+| **Phase 3 PlayerActor** **移植** | 1d       | 将原有  Rigidbody 跳跃代码迁移为 Actor 模式 <br />速度/加速度由 PlayerActor 维护，调用 MoveX/MoveY <br />移植预输入（Jump  Buffer）<br />移植土狼时间（Coyote Time）<br />移植下落加速（Fall Gravity Multiplier）<br />移植顶端静止（Apex Modifier）  <br />添加跳跃顶端修正 | **PlayerActor** **手感与原版 Unity 物理版本一致** |
+| **Phase 4** **进阶特性**         | 1d       | PlayerActor 重写  IsRiding（蹬墙/抓墙骑乘判断）<br />PlayerActor 重写  Squish（死亡/重生逻辑）<br />实现冲刺（Dash）：短时间免碰撞 + 方向速度注入<br />实现爬墙/墙跳（Wall Grab/Jump） | **完整蔚蓝核心动作集可用**                        |
+| **Phase 5** **集成测试**         | 2d       | 用静态 + 移动平台搭建测试关卡<br />压力测试：多个 Solid 同时移动时无穿透<br />边缘情况：Squish、卡缝、角碰撞验证 <br />与原  Unity 物理版本手感对比调参<br />性能分析：PhysicsWorld  遍历优化（空间分区备用） | **完整可玩 Demo，无物理 Bug**                     |
+
+ ```
+ Assets/
+ ├── Scripts/
+ │
+ │   ├── Core/                                 # 🔧 纯底层（无任何游戏逻辑）
+ │   │
+ │   │   ├── Physics/
+ │   │   │   ├── PhysicsWorld.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - 管理所有 Actor / Solid 列表
+ │   │   │   │       - 提供 Overlap(RectInt) 查询接口（核心）
+ │   │   │   │       - 提供 BoxCast / CheckCollision
+ │   │   │   │       - 提供 Register / Remove（生命周期管理）
+ │   │   │   │       - 可扩展：空间分区（优化性能）
+ │   │   │   │
+ │   │   │   ├── Collision.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - 封装 RectInt.Overlaps 调用
+ │   │   │   │       - 提供统一接口（避免未来替换实现困难）
+ │   │   │   │       - 可扩展：返回碰撞信息（法线/方向）
+ │   │   │   │
+ │   │   │   ├── Raycast.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - 实现 BoxCast（用多次 Overlap 模拟）
+ │   │   │   │       - 用于地面检测 / 墙检测
+ │   │   │   │       - 替代 Physics2D.BoxCast
+ │
+ │   │   ├── Utils/
+ │   │       ├── Timer.cs
+ │   │       │   └── 【职责】
+ │   │       │       - 通用计时器（用于 Coyote Time / Dash）
+ │   │       │
+ │   │       ├── InputReader.cs
+ │   │       │   └── 【职责】
+ │   │       │       - 输入缓存（Jump Buffer 实现关键）
+ │
+ │   ├── PhysicsObjects/                        # 🧱 Celeste核心抽象层
+ │   │
+ │   │   ├── Actor.cs
+ │   │   │   └── 【职责】
+ │   │   │       - 可移动对象（玩家/敌人）
+ │   │   │       - 持有 RectInt collider
+ │   │   │       - 持有 Position（int）
+ │   │   │       - 维护 xRemainder / yRemainder（子像素）
+ │   │   │
+ │   │   │       - 核心函数：
+ │   │   │         → MoveX(float amount, Action onCollide)
+ │   │   │           - 余数累计
+ │   │   │           - Round → 整数移动
+ │   │   │           - 逐像素移动（while）
+ │   │   │           - 每步用 PhysicsWorld.Overlap 检测
+ │   │   │
+ │   │   │         → MoveY(...)
+ │   │   │
+ │   │   │         → IsRiding(Solid)
+ │   │   │           - 默认：是否站在顶部
+ │   │   │
+ │   │   │
+ │   │   ├── Solid.cs
+ │   │   │   └── 【职责】
+ │   │   │       - 不可穿透对象（地面 / 平台）
+ │   │   │       - 持有 RectInt collider
+ │   │   │
+ │   │   │       - 核心函数：
+ │   │   │         → Move(int dx, int dy)
+ │   │   │           - 暂时关闭自身 Collidable
+ │   │   │           - 移动自身 RectInt
+ │   │   │           - 遍历 Actor：
+ │   │   │               1. Riding → Carry（一起移动）
+ │   │   │               2. 碰撞 → Push（推开）
+ │   │   │               3. 推不开 → Squish（挤压）
+ │   │   │           - 恢复 Collidable
+ │   │   │
+ │   │   │
+ │   │   ├── ICollidable.cs
+ │   │   │   └── 【职责】
+ │   │   │       - 统一接口
+ │   │   │
+ │   │   │       - 定义：
+ │   │   │         → RectInt Bounds
+ │   │   │         → bool Collidable
+ │   │   │
+ │   │   │
+ │   │   ├── PhysicsComponent.cs
+ │   │   │   └── 【职责】（Unity桥接层‼）
+ │   │   │       - 挂在 GameObject 上
+ │   │   │       - 持有 Actor / Solid
+ │   │   │       - 同步：
+ │   │   │           Transform.position ↔ RectInt.position
+ │   │   │       - Awake 时自动注册到 PhysicsWorld
+ │
+ │   ├── Gameplay/                              # 🎮 游戏逻辑层
+ │   │
+ │   │   ├── Player/
+ │   │   │
+ │   │   │   ├── PlayerActor.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - Celeste 手感核心
+ │   │   │   │       - 管理 velocity（float）
+ │   │   │   │       - 计算：
+ │   │   │   │           → gravity
+ │   │   │   │           → jump
+ │   │   │   │           → fall multiplier
+ │   │   │   │           → apex modifier
+ │   │   │   │
+ │   │   │   │       - 调用：
+ │   │   │   │           MoveX / MoveY（Actor）
+ │   │   │   │
+ │   │   │   │       - 实现：
+ │   │   │   │           → Jump Buffer
+ │   │   │   │           → Coyote Time
+ │   │   │
+ │   │   │
+ │   │   │   ├── PlayerController.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - 读取输入
+ │   │   │   │       - 转换为 movement / jump / dash
+ │   │   │   │       - 不处理物理
+ │   │   │
+ │   │   │
+ │   │   │   ├── PlayerStateMachine.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - 管理状态切换
+ │   │   │
+ │   │   │
+ │   │   │   ├── States/
+ │   │   │   │   ├── IdleState.cs
+ │   │   │   │   ├── RunState.cs
+ │   │   │   │   ├── JumpState.cs
+ │   │   │   │   ├── FallState.cs
+ │   │   │   │   ├── DashState.cs
+ │   │   │   │   ├── WallState.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - 每个状态只处理行为逻辑
+ │   │   │
+ │   │   ├── Environment/
+ │   │   │   ├── MovingPlatform.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - 调用 Solid.Move 实现移动平台
+ │   │   │
+ │   │   │   ├── OneWayPlatform.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - 可从下穿透的平台
+ │   │   │
+ │   │   │   ├── Hazard.cs
+ │   │   │   │   └── 【职责】
+ │   │   │   │       - 碰到即死亡（刺）
+ │
+ │   ├── Data/                                  # 📊 数据驱动
+ │   │
+ │   │   ├── PlayerStats.cs
+ │   │   │   └── 【职责】
+ │   │   │       - ScriptableObject
+ │   │   │       - 参数：
+ │   │   │           runSpeed / jumpForce / gravity
+ │   │   │           coyoteTime / jumpBuffer
+ │   │   │
+ │   │   ├── PhysicsSettings.cs
+ │   │   │   └── 【职责】
+ │   │   │       - PPU（建议=16）
+ │   │   │       - LayerMask
+ │
+ │   ├── Debug/
+ │       ├── Gizmos/
+ │       │   ├── PlayerJumpGizmo.cs
+ │       │   │   └── 【职责】
+ │       │   │       - 在编辑器中绘制跳跃轨迹
+ │       │   │
+ │       │   ├── CollisionGizmo.cs
+ │       │   │   └── 【职责】
+ │       │   │       - 可视化 RectInt 碰撞盒
+ ```
 
 
 

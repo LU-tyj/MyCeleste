@@ -9,8 +9,8 @@ namespace Platformer
         //  Horizontal
         // ─────────────────────────────────────────────
         [Header("Horizontal")]
-        [Range(1f, 20f)]  public float moveSpeed = 6f;
-        [Range(1f, 30f)]  public float runSpeed  = 10f;
+        [Range(1f, 200f)]  public float moveSpeed = 6f;
+        public float runSpeed  = 10f;
 
         // ─────────────────────────────────────────────
         //  Jump Design Parameters（设计参数，驱动所有运行时值）
@@ -23,20 +23,20 @@ namespace Platformer
         [Range(0.1f, 2f)]   public float timeTillJumpApex = 0.4f;
 
         [Tooltip("顶点悬空持续时间（秒），0 = 关闭悬空）")]
-        [Range(0f, 0.5f)]   public float jumpApexDuration = 0.1f;
+        public float jumpApexDuration = 0.1f;
 
         [Tooltip("最大下落速度（负值）")]
-        [Range(-30f, -1f)]  public float maxFallSpeed = -20f;
+        public float maxFallSpeed = -20f;
 
         // ─────────────────────────────────────────────
         //  Gravity Modifiers
         // ─────────────────────────────────────────────
         [Header("Gravity Modifiers")]
         [Tooltip("下落阶段重力倍率（> 1 更「重」）")]
-        [Range(1f, 10f)]    public float gravityMultiplier = 3f;
+        public float gravityMultiplier = 3f;
 
         [Tooltip("提前松开跳跃键时的重力倍率")]
-        [Range(1f, 10f)]    public float jumpEndEarlyGravityModifier = 3f;
+        public float jumpEndEarlyGravityModifier = 3f;
 
         // ─────────────────────────────────────────────
         //  Jump Assist

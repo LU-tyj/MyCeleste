@@ -5,10 +5,10 @@ namespace Platformer
     public class PhysicCheck : MonoBehaviour
     {
         [Header("References")]
-        [SerializeField] private BoxCollider2D col;
+        public BoxCollider2D col;
 
         [Header("Collision Settings")]
-        [SerializeField] private LayerMask groundLayer;
+        public LayerMask groundLayer;
         [SerializeField] private float groundCheckDistance = 0.05f;
         [SerializeField] private float ceilCheckDistance  = 0.05f;
 

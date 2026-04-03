@@ -12,14 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ca3813a6b2ad42c59fe69fe608f63dc4, type: 3}
   m_Name: PlayerMovementStat
   m_EditorClassIdentifier: Assembly-CSharp::Platformer.PlayerMovementStats
-  moveSpeed: 6
-  runSpeed: 4.5
+  moveSpeed: 55
+  runSpeed: 150
   maxJumpHeight: 2.14
   timeTillJumpApex: 0.4
   jumpApexDuration: 0.1
-  maxFallSpeed: -20
-  gravityMultiplier: 3
-  jumpEndEarlyGravityModifier: 3
+  maxFallSpeed: -200
+  gravityMultiplier: 10
+  jumpEndEarlyGravityModifier: 10
   jumpCoyoteDuration: 0.2
   jumpBufferDuration: 0.1
   arcResolution: 30
