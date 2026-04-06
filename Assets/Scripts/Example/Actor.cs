@@ -8,6 +8,7 @@ using UnityEngine;
 ///  · 位置使用整数像素；浮点余量累积后再取整移动。
 ///  · 每次只移动 1 像素，逐格检测，保证永不与 Solid 重叠。
 ///  · 不自带速度/重力，由子类管理并传入 MoveX / MoveY。
+///  · 所有碰撞计算在像素空间进行，渲染时通过 /PPU 还原为 Unity 世界坐标。
 /// </summary>
 [RequireComponent(typeof(BoxCollider2D))]
 public class Actor : MonoBehaviour
@@ -20,16 +21,16 @@ public class Actor : MonoBehaviour
     // 整数位置（像素）
     protected Vector2Int position;
 
-    // 浮点余量累加器
+    // 浮点余量累加器（像素单位）
     private float xRemainder;
     private float yRemainder;
 
     // ── 属性 ────────────────────────────────────────────────────
     public Vector2Int Position => position;
 
-    /// <summary>整数 AABB（像素坐标）</summary>
+    /// <summary>整数 AABB（像素坐标空间）</summary>
     public RectInt Bounds => new RectInt(
-        position.x + colliderOffset.x,
+        position.x + colliderOffset.x - colliderSize.x / 2,
         position.y + colliderOffset.y,
         colliderSize.x,
         colliderSize.y
@@ -43,8 +44,8 @@ public class Actor : MonoBehaviour
     // ── Unity 生命周期 ──────────────────────────────────────────
     protected virtual void Awake()
     {
-        // 将 Unity Transform 的像素位置同步到整数 position
-        position = Vector2Int.RoundToInt(transform.position);
+        // Unity 世界坐标 → 像素坐标（/PPU）
+        position = Vector2Int.RoundToInt(transform.position / PhysicsWorld.PPU);
         SyncTransform();
 
         PhysicsWorld.Instance.RegisterActor(this);
@@ -58,10 +59,10 @@ public class Actor : MonoBehaviour
     // ── 核心移动 API ─────────────────────────────────────────────
 
     /// <summary>
-    /// 水平移动。
-    /// <param name="amount">移动量（可为浮点）</param>
-    /// <param name="onCollide">碰到 Solid 时的回调（可为 null）</param>
+    /// 水平移动（像素单位）。
     /// </summary>
+    /// <param name="amount">移动量（可为浮点像素）</param>
+    /// <param name="onCollide">碰到 Solid 时的回调（可为 null）</param>
     public void MoveX(float amount, Action onCollide)
     {
         xRemainder += amount;
@@ -73,6 +74,7 @@ public class Actor : MonoBehaviour
 
         while (move != 0)
         {
+            // 碰撞检测在像素空间进行
             var nextBounds = new RectInt(
                 Bounds.x + sign, Bounds.y,
                 Bounds.width, Bounds.height
@@ -80,14 +82,12 @@ public class Actor : MonoBehaviour
 
             if (!PhysicsWorld.Instance.SolidOverlap(nextBounds))
             {
-                // 前方无障碍，移动 1 像素
                 position.x += sign;
                 move       -= sign;
-                SyncTransform();
+                SyncTransform();  // 像素 → 世界坐标同步
             }
             else
             {
-                // 碰到实体
                 onCollide?.Invoke();
                 break;
             }
@@ -95,10 +95,10 @@ public class Actor : MonoBehaviour
     }
 
     /// <summary>
-    /// 垂直移动。
-    /// <param name="amount">移动量（可为浮点，正值向上）</param>
-    /// <param name="onCollide">碰到 Solid 时的回调（可为 null）</param>
+    /// 垂直移动（像素单位）。
     /// </summary>
+    /// <param name="amount">移动量（可为浮点像素，正值向上）</param>
+    /// <param name="onCollide">碰到 Solid 时的回调（可为 null）</param>
     public void MoveY(float amount, Action onCollide)
     {
         yRemainder += amount;
@@ -133,18 +133,16 @@ public class Actor : MonoBehaviour
 
     /// <summary>
     /// 判断该 Actor 是否"骑在" solid 上（即该 Actor 站在 solid 顶部）。
-    /// 子类可重写以支持抓边等特殊情况。
+    /// 像素空间比较。
     /// </summary>
     public virtual bool IsRiding(Solid solid)
     {
-        // Actor 底部紧贴 Solid 顶部，且水平方向有重叠
         RectInt below = new RectInt(Bounds.x, Bounds.y - 1, Bounds.width, Bounds.height);
         return solid.Bounds.Overlaps(below);
     }
 
     /// <summary>
     /// 被两个 Solid 夹住时调用。默认行为：销毁自身。
-    /// 子类可重写为掉血、弹出等。
     /// </summary>
     public virtual void Squish()
     {
@@ -154,13 +152,20 @@ public class Actor : MonoBehaviour
 
     // ── 工具方法 ────────────────────────────────────────────────
 
-    /// <summary>将整数 position 写回 Unity Transform（保持 z 不变）</summary>
+    /// <summary>
+    /// 将整数像素坐标写回 Unity Transform。
+    /// 像素坐标 * PPU = Unity 世界坐标。
+    /// </summary>
     protected void SyncTransform()
     {
-        transform.position = new Vector3(position.x, position.y, transform.position.z);
+        transform.position = new Vector3(
+            position.x * PhysicsWorld.PPU,
+            position.y * PhysicsWorld.PPU,
+            transform.position.z
+        );
     }
 
-    /// <summary>强制设置整数位置（清零余量）</summary>
+    /// <summary>强制设置整数像素位置（清零余量）</summary>
     public void SetPosition(Vector2Int pos)
     {
         position   = pos;
@@ -173,21 +178,30 @@ public class Actor : MonoBehaviour
 #if UNITY_EDITOR
     void OnDrawGizmos()
     {
+        // 编辑器下从 Transform 反算像素坐标
         Vector2Int pos = Application.isPlaying
             ? position
-            : Vector2Int.RoundToInt(transform.position);
+            : Vector2Int.RoundToInt(transform.position / PhysicsWorld.PPU);
 
+        // 在像素空间计算 AABB
         RectInt b = new RectInt(
-            pos.x + colliderOffset.x,
+            pos.x + colliderOffset.x - colliderSize.x / 2,
             pos.y + colliderOffset.y,
             colliderSize.x,
             colliderSize.y
         );
 
+        float ppu = PhysicsWorld.PPU;
+
         Gizmos.color = Color.green;
+        // ✅ 像素坐标 → Unity 世界坐标（*PPU）再绘制
         Gizmos.DrawWireCube(
-            new Vector3(b.x + b.width  * 0.5f, b.y + b.height * 0.5f, 0),
-            new Vector3(b.width, b.height, 0)
+            new Vector3((b.x + b.width  * 0.5f) * ppu,
+                        (b.y + b.height * 0.5f) * ppu,
+                        0f),
+            new Vector3(b.width  * ppu,
+                        b.height * ppu,
+                        0f)
         );
     }
 #endif

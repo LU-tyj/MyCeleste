@@ -8,8 +8,7 @@ namespace Platformer
     public class PlayerController : MonoBehaviour
     {
         [Header("References")]
-        [SerializeField] private Rigidbody2D rb;
-        [SerializeField] private Animator animator;
+        [SerializeField] private Animator    animator;
         [SerializeField] private InputReader input;
         [SerializeField] private PhysicCheck physicCheck;
 
@@ -20,9 +19,14 @@ namespace Platformer
         [SerializeField] private Vector2 movement;
         private Vector2 playerVelocity;
 
+        // ── 自管理位置（替代 rb.position）────────────────────────
+        // 含义：角色 GameObject 的世界坐标（即 transform.position 的 xy）。
+        // 在 FixedUpdate 末尾通过 CommitPosition() 写回 transform.position。
+        private Vector2 _position;
+
         private StateMachine stateMachine;
 
-        private List<Timer> timers;
+        private List<Timer>    timers;
         private CountdownTimer jumpTimer;
         private CountdownTimer jumpBufferTimer;
         private CountdownTimer jumpCoyoteTimer;
@@ -36,21 +40,27 @@ namespace Platformer
         public PlayerMovementStats Stats       => movementStats;
 
         // ── 像素移动 ──────────────────────────────────────────────
-        // PPU = Pixels Per Unit，与 Sprite 导入设置保持一致
-        private const int PPU = 16;
+        private const int   PPU       = 16;
+        private const float SkinWidth = 0.02f;
+
         private float xRemainder;
         private float yRemainder;
 
-        // 碰撞盒收缩量：避免紧贴墙时误判，值要小于 1/PPU
-        private const float SkinWidth = 0.02f;
+        // ── Debug 可视化 ──────────────────────────────────────────
+        private Vector2 _lastMoveXCheckPos;
+        private Vector2 _lastMoveXCheckSize;
+        private Vector2 _lastMoveYCheckPos;
+        private Vector2 _lastMoveYCheckSize;
 
         #region Unity Methods
         private void Awake()
         {
-            rb        = GetComponent<Rigidbody2D>();
-            animator  = GetComponent<Animator>();
-            input     = new InputReader();
+            animator    = GetComponent<Animator>();
+            input       = new InputReader();
             physicCheck = GetComponent<PhysicCheck>();
+
+            // 用 transform 初始化自管理位置
+            _position = transform.position;
 
             physicCheck.OnLanded     += HandleLanded;
             physicCheck.OnLeftGround += HandleLeftGround;
@@ -86,26 +96,38 @@ namespace Platformer
 
         private void FixedUpdate()
         {
+            // 0. 同步 _position（防止外部直接修改 transform 导致漂移）
+            //    如果 transform 只由本脚本控制，可以删掉这行。
+            _position = transform.position;
+
             // 1. 碰撞检测
             physicCheck.CheckCollisions();
             isGrounded = physicCheck.IsGrounded;
             isCeil     = physicCheck.IsCeil;
 
-            // 2. 状态机物理更新（内部调用 HandleMovement / HandleJump）
+            // 2. 状态机物理更新
             stateMachine.FixedUpdate();
 
-            // 3. 像素级移动（所有速度在状态机里算好后统一应用）
+            // 3. 像素级移动
             ApplyMovement();
 
-            // 4. 动画同步
+            // 4. 将 _position 写回 transform（物理移动的唯一出口）
+            CommitPosition();
+
+            // 5. 动画同步
             UpdateAnimator();
+        }
+
+        /// <summary>把内部位置写回 transform，保留 Z 轴不变。</summary>
+        private void CommitPosition()
+        {
+            transform.position = new Vector3(_position.x, _position.y, transform.position.z);
         }
         #endregion
 
         #region Physics Event Handlers
         private void HandleLanded()
         {
-            // 落地：清除向下速度，保留向上（防止从下往上穿台阶时被清零）
             if (playerVelocity.y < 0f)
                 playerVelocity.y = 0f;
         }
@@ -171,48 +193,64 @@ namespace Platformer
         #endregion
 
         #region Jump
+
+        // 记录是否提前松开了跳跃键（用于下落段选择重力倍率）
+        private bool _jumpEndedEarly;
+
         public void HandleJump()
         {
-            // ── 顶点悬停 ────────────────────────────────────────
-            // jumpApexDuration 是从 JumpDuration 末尾倒数的窗口，
-            // 进入窗口时清零 Y 速度制造短暂悬停感
-            if (jumpTimer.IsRunning && jumpTimer.Compare(movementStats.jumpApexDuration))
-            {
-                playerVelocity.y = 0f;
-            }
-
+            // ── 阶段一：jumpTimer 运行中 = 上升段 ─────────────────
+            // PlayerMovementStats 的物理模型：
+            //   v0 = 2h / t_apex，g = -2h / t_apex²
+            // 意味着从 v0 开始每帧施加一次 g，经过 t_apex 秒后速度恰好为 0。
+            // jumpTimer 时长 = timeTillJumpApex + jumpApexDuration，
+            // 当剩余时间 ≤ jumpApexDuration 时进入顶点悬停（速度清零）。
             if (jumpTimer.IsRunning)
             {
-                // ── 上升阶段 ────────────────────────────────────
-                // Gravity 应为负值（向下），上升期间速度逐渐减小趋向 0
-                playerVelocity.y += movementStats.Gravity * Time.fixedDeltaTime;
-            }
-            else
-            {
-                // ── 下落阶段 ────────────────────────────────────
-                // 限制最大下落速度（maxFallSpeed 应为负值）
-                if (playerVelocity.y < movementStats.maxFallSpeed)
+                // 顶点悬停窗口：强制清零 Y 速度，制造短暂飘浮感
+                if (jumpTimer.Compare(movementStats.jumpApexDuration))
                 {
-                    playerVelocity.y = movementStats.maxFallSpeed;
-                    return;
+                    playerVelocity.y = 0f;
+                    return; // 悬停期间不施加任何重力
                 }
 
-                // 下落时加强重力；若跳跃键提前松开则用更强的修正系数
-                float gravity = movementStats.Gravity;
-                gravity *= playerVelocity.y < 0f
-                    ? movementStats.gravityMultiplier
-                    : movementStats.jumpEndEarlyGravityModifier;
-
-                playerVelocity.y += gravity * Time.fixedDeltaTime;
+                // 上升段：施加基础重力（负值），速度从 v0 逐渐减小趋向 0
+                // 与可视化公式 displacement += 0.5 * g * t² 对应
+                playerVelocity.y += movementStats.Gravity * Time.fixedDeltaTime;
+                return;
             }
+
+            // ── 阶段二：jumpTimer 已停止 = 下落段 ─────────────────
+            // 限制最大下落速度
+            if (playerVelocity.y <= movementStats.maxFallSpeed)
+            {
+                playerVelocity.y = movementStats.maxFallSpeed;
+                return;
+            }
+
+            // 根据是否提前松键选择重力倍率：
+            //   提前松键（_jumpEndedEarly）→ jumpEndEarlyGravityModifier（更强，短跳）
+            //   自然下落                   → gravityMultiplier（正常下落手感）
+            float multiplier = _jumpEndedEarly
+                ? movementStats.jumpEndEarlyGravityModifier
+                : movementStats.gravityMultiplier;
+
+            playerVelocity.y += movementStats.Gravity * multiplier * Time.fixedDeltaTime;
         }
 
         private void OnJump(bool performed)
         {
             if (performed)
+            {
                 jumpBufferTimer.Start();
+                _jumpEndedEarly = false;   // 新一次起跳，重置标志
+            }
             else if (jumpTimer.IsRunning)
+            {
+                // 提前松键：停止 jumpTimer，让下落段用更强重力
                 jumpTimer.Stop();
+                _jumpEndedEarly = true;
+            }
         }
 
         public void ApplyInitialJumpVelocity()
@@ -235,27 +273,22 @@ namespace Platformer
 
         private void ApplyMovement()
         {
-            MoveX(playerVelocity.x * Time.fixedDeltaTime, OnHitWall);
-            MoveY(playerVelocity.y * Time.fixedDeltaTime, OnHitVertical);
+            MoveX(playerVelocity.x * Time.fixedDeltaTime * PPU, OnHitWall);
+            MoveY(playerVelocity.y * Time.fixedDeltaTime * PPU, OnHitVertical);
         }
 
-        private void OnHitWall()
+        private void OnHitWall()     => playerVelocity.x = 0f;
+        private void OnHitVertical() => playerVelocity.y = 0f;
+
+        private Vector2 GetCheckCenter(Vector2 nextPos)
         {
-            playerVelocity.x = 0f;
+            return nextPos + physicCheck.col.offset;
         }
 
-        private void OnHitVertical()
-        {
-            // 方向由 playerVelocity.y 判断：
-            // 向上撞天花板 → HandleHitCeiling 已经清零
-            // 向下落地    → HandleLanded 已经清零
-            // 这里作为保险兜底
-            playerVelocity.y = 0f;
-        }
+        // 用 col.size 代替 col.bounds.size，不依赖物理引擎刷新
+        private Vector2 CheckSize => physicCheck.col.size - Vector2.one * SkinWidth;
 
-        /// <summary>
-        /// 水平像素移动：每次 1 像素（1/PPU Unit），逐步检测碰撞。
-        /// </summary>
+        /// <summary>水平像素移动，每步 1px（1/PPU Unit）。</summary>
         private void MoveX(float amount, Action onCollide)
         {
             xRemainder += amount;
@@ -267,19 +300,19 @@ namespace Platformer
 
             while (move != 0)
             {
-                Vector2 nextPos = rb.position + new Vector2(sign / (float)PPU, 0f);
+                Vector2 nextPos     = _position + new Vector2(sign / (float)PPU, 0f);
+                Vector2 checkCenter = GetCheckCenter(nextPos);
+                Vector2 checkSize   = CheckSize;
 
-                // OverlapBox 以角色中心为基准检测，收缩 SkinWidth 避免紧贴时误判
+                _lastMoveXCheckPos  = checkCenter;
+                _lastMoveXCheckSize = checkSize;
+
                 bool hit = Physics2D.OverlapBox(
-                    nextPos,
-                    (Vector2)physicCheck.col.bounds.size - Vector2.one * SkinWidth,
-                    0f,
-                    physicCheck.groundLayer
-                );
+                    checkCenter, checkSize, 0f, physicCheck.groundLayer);
 
                 if (!hit)
                 {
-                    rb.position = nextPos;
+                    _position = nextPos;
                     move -= sign;
                 }
                 else
@@ -291,9 +324,7 @@ namespace Platformer
             }
         }
 
-        /// <summary>
-        /// 垂直像素移动：每次 1 像素（1/PPU Unit），逐步检测碰撞。
-        /// </summary>
+        /// <summary>垂直像素移动，每步 1px（1/PPU Unit）。</summary>
         private void MoveY(float amount, Action onCollide)
         {
             yRemainder += amount;
@@ -305,18 +336,19 @@ namespace Platformer
 
             while (move != 0)
             {
-                Vector2 nextPos = rb.position + new Vector2(0f, sign / (float)PPU);
+                Vector2 nextPos     = _position + new Vector2(0f, sign / (float)PPU);
+                Vector2 checkCenter = GetCheckCenter(nextPos);
+                Vector2 checkSize   = CheckSize;
+
+                _lastMoveYCheckPos  = checkCenter;
+                _lastMoveYCheckSize = checkSize;
 
                 bool hit = Physics2D.OverlapBox(
-                    nextPos,
-                    (Vector2)physicCheck.col.bounds.size - Vector2.one * SkinWidth,
-                    0f,
-                    physicCheck.groundLayer
-                );
+                    checkCenter, checkSize, 0f, physicCheck.groundLayer);
 
                 if (!hit)
                 {
-                    rb.position = nextPos;
+                    _position = nextPos;
                     move -= sign;
                 }
                 else
@@ -333,5 +365,32 @@ namespace Platformer
             stateMachine.AddTransition(from, to, condition);
         private void Any(IState to, IPredicate condition) =>
             stateMachine.AddAnyTransition(to, condition);
+
+        private void OnDrawGizmos()
+        {
+            if (physicCheck == null || physicCheck.col == null) return;
+
+            Vector2 origin = Application.isPlaying ? _position : (Vector2)transform.position;
+
+            // 绿色：当前碰撞盒
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireCube(origin + physicCheck.col.offset, CheckSize);
+
+            if (!Application.isPlaying) return;
+
+            // 红色：MoveX 最后检测框
+            if (_lastMoveXCheckSize != Vector2.zero)
+            {
+                Gizmos.color = Color.red;
+                Gizmos.DrawWireCube(_lastMoveXCheckPos, _lastMoveXCheckSize);
+            }
+
+            // 蓝色：MoveY 最后检测框
+            if (_lastMoveYCheckSize != Vector2.zero)
+            {
+                Gizmos.color = Color.blue;
+                Gizmos.DrawWireCube(_lastMoveYCheckPos, _lastMoveYCheckSize);
+            }
+        }
     }
 }

@@ -1,6 +1,7 @@
+using System.Collections.Generic;
 using UnityEngine;
 
-namespace PhysicsCore
+namespace Core
 {
     public class PhysicsWorld:MonoBehaviour
     {
@@ -16,6 +17,9 @@ namespace PhysicsCore
         [SerializeField] private int pixelsPerUnit = 16;
         
         public static int PPU => Instance.pixelsPerUnit;
+        
+        private readonly List<Actor> actors = new List<Actor>();
+        private readonly List<Solid> solids = new List<Solid>();
 
         private void Awake()
         {
@@ -27,6 +31,24 @@ namespace PhysicsCore
             {
                 Destroy(gameObject);
             }
+        }
+        
+        public void RegisterActor(Actor actor) {if (!actors.Contains(actor)) { actors.Add(actor); }}
+        public void UnregisterActor(Actor actor)  {if (actors.Contains(actor)) { actors.Remove(actor); }}
+        public void RegisterSolid(Solid solid) {if (!solids.Contains(solid)) { solids.Add(solid); }}
+        public void UnregisterSolid(Solid solid) {if (solids.Contains(solid)) { solids.Remove(solid);} }
+        
+        public IReadOnlyList<Actor> AllActors => actors;
+        public IReadOnlyList<Solid> AllSolids => solids;
+        
+        public bool SolidOverlap(RectInt box, Solid ignore = null)
+        {
+            return false;
+        }
+
+        public bool ActorOverlap(RectInt box, Actor ignore = null)
+        {
+            return false;
         }
         
     }

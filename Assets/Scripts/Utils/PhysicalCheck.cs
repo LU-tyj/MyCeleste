@@ -10,37 +10,44 @@ namespace Platformer
         [Header("Collision Settings")]
         public LayerMask groundLayer;
         [SerializeField] private float groundCheckDistance = 0.05f;
-        [SerializeField] private float ceilCheckDistance  = 0.05f;
+        [SerializeField] private float ceilCheckDistance   = 0.05f;
 
         public bool IsGrounded { get; private set; }
         public bool IsCeil     { get; private set; }
 
-        // 触发事件，让 PlayerController 订阅
         public event System.Action OnLanded;
         public event System.Action OnLeftGround;
         public event System.Action OnHitCeiling;
 
-        private bool colliderCache;
+        private bool _queriesCache;
 
         private void Awake()
         {
             col = GetComponent<BoxCollider2D>();
-            colliderCache = Physics2D.queriesStartInColliders;
+            _queriesCache = Physics2D.queriesStartInColliders;
         }
+
+        // ── 手动计算碰撞盒在世界空间的中心和尺寸 ──────────────────
+        private Vector2 ColCenter => (Vector2)transform.position + col.offset;
+        private Vector2 ColSize   => col.size;
 
         /// <summary>
         /// 由 PlayerController.FixedUpdate 调用，保持与物理步骤同步。
+        /// 必须在 PlayerController 的 CommitPosition() 之前调用，
+        /// 这样 transform.position 已经是本帧最新位置。
+        /// （FixedUpdate 的顺序在 Step 0 同步 _position 后、ApplyMovement 前调用，
+        ///  所以 CheckCollisions 读到的是上一帧末的位置，行为与有 Rigidbody 时一致）
         /// </summary>
         public void CheckCollisions()
         {
             Physics2D.queriesStartInColliders = false;
 
             bool groundHit = Physics2D.BoxCast(
-                col.bounds.center, col.bounds.size, 0f,
+                ColCenter, ColSize, 0f,
                 Vector2.down, groundCheckDistance, groundLayer);
 
             bool ceilHit = Physics2D.BoxCast(
-                col.bounds.center, col.bounds.size, 0f,
+                ColCenter, ColSize, 0f,
                 Vector2.up, ceilCheckDistance, groundLayer);
 
             // ── 天花板 ──────────────────────────────────────────
@@ -66,7 +73,7 @@ namespace Platformer
                 OnLeftGround?.Invoke();
             }
 
-            Physics2D.queriesStartInColliders = colliderCache;
+            Physics2D.queriesStartInColliders = _queriesCache;
         }
     }
 }
