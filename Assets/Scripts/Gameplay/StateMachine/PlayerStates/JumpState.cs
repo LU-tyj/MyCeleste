@@ -11,14 +11,20 @@ namespace Platformer
         public override void OnEnter()
         {
             // animator.CrossFade(JumpHash, crossFadeDuration);
-            
-            player.ApplyInitialJumpVelocity();
+            //Debug.Log("OnEnter JumpState");
+            player.ApplyInitialJumpStats();
         }
 
         public override void FixedUpdate()
         {
             player.HandleJump();
             player.HandleMovement();
+        }
+
+        public override void OnExit()
+        {
+            //Debug.Log("OnExit JumpState");
+            player.ApplyEndOfJumpStats();
         }
     }
 }

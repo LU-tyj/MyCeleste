@@ -10,7 +10,8 @@ namespace Platformer
         protected static readonly int JumpHash = Animator.StringToHash("Jump");
         protected static readonly int LocomotionHash = Animator.StringToHash("Locomotion");
         protected static readonly int AirHash = Animator.StringToHash("Air");
-        // protected static readonly int idleHash = Animator.StringToHash("Idle");
+        protected static readonly int DashHash = Animator.StringToHash("Dash");
+        protected static readonly int WallHash = Animator.StringToHash("Wall");
         
         protected const float crossFadeDuration = 0.0f;
 

@@ -12,15 +12,22 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ca3813a6b2ad42c59fe69fe608f63dc4, type: 3}
   m_Name: PlayerMovementStat
   m_EditorClassIdentifier: Assembly-CSharp::Platformer.PlayerMovementStats
-  moveSpeed: 55
-  runSpeed: 10
-  maxJumpHeight: 3.2
-  timeTillJumpApex: 0.4
-  jumpApexDuration: 0.1
-  maxFallSpeed: -20
-  gravityMultiplier: 10
-  jumpEndEarlyGravityModifier: 10
-  jumpCoyoteDuration: 0.2
+  moveSpeed: 1
+  runSpeed: 8
+  acceleration: 40
+  deceleration: 100
+  dashSpeed: 30
+  dashDuration: 0.15
+  dashToConsume: 1
+  maxJumpHeight: 2
+  timeTillJumpApex: 0.2
+  jumpApexDuration: 0
+  maxFallSpeed: -10
+  maxCorrection: 4
+  gravityMultiplier: 1.5
+  jumpEndEarlyGravityModifier: 1.5
+  jumpCD: 0.1
+  jumpCoyoteDuration: 0.15
   jumpBufferDuration: 0.1
   arcResolution: 30
   visualizationSteps: 63
@@ -32,6 +39,6 @@ MonoBehaviour:
   arcAscendColor: {r: 0.2, g: 0.9, b: 0.2, a: 0.85}
   arcApexColor: {r: 1, g: 0.8, b: 0.1, a: 0.85}
   arcDescendColor: {r: 0.9, g: 0.3, b: 0.2, a: 0.85}
-  initialJumpVelocity: 16
-  gravity: -40
-  jumpDuration: 0.5
+  initialJumpVelocity: 20
+  gravity: -100
+  jumpDuration: 0.2

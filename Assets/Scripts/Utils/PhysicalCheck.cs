@@ -5,7 +5,7 @@ namespace Platformer
     public class PhysicCheck : MonoBehaviour
     {
         [Header("References")]
-        public BoxCollider2D col;
+        [SerializeField] private BoxCollider2D col;
 
         [Header("Collision Settings")]
         public LayerMask groundLayer;
@@ -28,8 +28,9 @@ namespace Platformer
         }
 
         // ── 手动计算碰撞盒在世界空间的中心和尺寸 ──────────────────
-        private Vector2 ColCenter => (Vector2)transform.position + col.offset;
-        private Vector2 ColSize   => col.size;
+        public Vector2 ColCenter => (Vector2)transform.position + col.offset;
+        public Vector2 ColSize   => col.size;
+        public Vector2 ColOffset => col.offset;
 
         /// <summary>
         /// 由 PlayerController.FixedUpdate 调用，保持与物理步骤同步。

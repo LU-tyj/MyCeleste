@@ -11,6 +11,13 @@ namespace Platformer
         [Header("Horizontal")]
         [Range(1f, 200f)]  public float moveSpeed = 6f;
         public float runSpeed  = 10f;
+        public float acceleration  = 80f;  // 加速率（units/s²）
+        public float deceleration  = 120f; // 减速率（units/s²），通常比加速更快以增强手感
+        
+        [Header("Dash")]
+        public float dashSpeed = 15f;
+        [Range(0f, 1f)] public float dashDuration = 0.15f;
+        public int dashToConsume = 1;
 
         // ─────────────────────────────────────────────
         //  Jump Design Parameters（设计参数，驱动所有运行时值）
@@ -28,6 +35,9 @@ namespace Platformer
         [Tooltip("最大下落速度（负值）")]
         public float maxFallSpeed = -20f;
 
+        [Tooltip(("Jump Correction 允许的最大像素距离"))]
+        public int maxCorrection = 4;
+
         // ─────────────────────────────────────────────
         //  Gravity Modifiers
         // ─────────────────────────────────────────────
@@ -42,6 +52,9 @@ namespace Platformer
         //  Jump Assist
         // ─────────────────────────────────────────────
         [Header("Jump Assist")]
+        [Tooltip("连续跳跃间隔时间")]
+        [Range(0f, 0.2f)]  public float jumpCD = 0.1f;
+        
         [Tooltip("离地后仍可起跳的宽容时间（土狼时间）")]
         [Range(0f, 0.5f)]   public float jumpCoyoteDuration = 0.2f;
 

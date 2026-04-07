@@ -7,40 +7,41 @@ namespace Platformer
 {
     public class PlayerController : MonoBehaviour
     {
-        [Header("References")]
-        [SerializeField] private Animator    animator;
+        [Header("References")] [SerializeField]
+        private Animator animator;
+
         [SerializeField] private InputReader input;
         [SerializeField] private PhysicCheck physicCheck;
 
-        [Header("Stats")]
-        [SerializeField] private PlayerMovementStats movementStats;
+        [Header("Stats")] [SerializeField] private PlayerMovementStats movementStats;
 
-        [Header("PlayerMovement")]
-        [SerializeField] private Vector2 movement;
+        [Header("PlayerMovement")] [SerializeField]
+        private Vector2 movement;
+
+        private Vector2 faceDir = Vector2.right;
         private Vector2 playerVelocity;
+        private int dashCount;
 
-        // ── 自管理位置（替代 rb.position）────────────────────────
-        // 含义：角色 GameObject 的世界坐标（即 transform.position 的 xy）。
-        // 在 FixedUpdate 末尾通过 CommitPosition() 写回 transform.position。
         private Vector2 _position;
 
         private StateMachine stateMachine;
 
-        private List<Timer>    timers;
+        private List<Timer> timers;
         private CountdownTimer jumpTimer;
+        private CountdownTimer jumpCDTimer;
         private CountdownTimer jumpBufferTimer;
         private CountdownTimer jumpCoyoteTimer;
+        private CountdownTimer dashTimer;
 
         private bool isGrounded;
         private bool isCeil;
-
-        public CountdownTimer JumpTimer        => jumpTimer;
-        public CountdownTimer JumpBufferTimer  => jumpBufferTimer;
-        public CountdownTimer JumpCoyoteTimer  => jumpCoyoteTimer;
-        public PlayerMovementStats Stats       => movementStats;
+        private bool canCorrection = false;
+        private bool jumpEndedEarly = false;
+        private bool isWall;
+        private bool isGrabPerformed = false;
 
         // ── 像素移动 ──────────────────────────────────────────────
-        private const int   PPU       = 16;
+        private const int PPU = 32;
         private const float SkinWidth = 0.02f;
 
         private float xRemainder;
@@ -53,16 +54,17 @@ namespace Platformer
         private Vector2 _lastMoveYCheckSize;
 
         #region Unity Methods
+
         private void Awake()
         {
-            animator    = GetComponent<Animator>();
-            input       = new InputReader();
+            animator = GetComponent<Animator>();
+            input = new InputReader();
             physicCheck = GetComponent<PhysicCheck>();
 
             // 用 transform 初始化自管理位置
             _position = transform.position;
 
-            physicCheck.OnLanded     += HandleLanded;
+            physicCheck.OnLanded += HandleLanded;
             physicCheck.OnLeftGround += HandleLeftGround;
             physicCheck.OnHitCeiling += HandleHitCeiling;
 
@@ -72,20 +74,31 @@ namespace Platformer
 
         private void OnDestroy()
         {
-            physicCheck.OnLanded     -= HandleLanded;
+            physicCheck.OnLanded -= HandleLanded;
             physicCheck.OnLeftGround -= HandleLeftGround;
             physicCheck.OnHitCeiling -= HandleHitCeiling;
         }
 
-        private void Start() => input.EnablePlayerActions();
-
-        private void OnEnable()
+        private void Start()
         {
-            input.Jump += OnJump;
-            movementStats.Calculate();
+            input.EnablePlayerActions();
+            dashCount = movementStats.dashToConsume;
         }
 
-        private void OnDisable() => input.Jump -= OnJump;
+    private void OnEnable()
+        {
+            input.Jump += OnJump;
+            input.Dash += OnDash;
+            input.Grab += OnGrab;
+            movementStats.Calculate();
+        }
+        
+        private void OnDisable()
+        {
+            input.Jump -= OnJump;
+            input.Dash -= OnDash;
+            input.Grab -= OnGrab;
+        }
 
         private void Update()
         {
@@ -97,7 +110,6 @@ namespace Platformer
         private void FixedUpdate()
         {
             // 0. 同步 _position（防止外部直接修改 transform 导致漂移）
-            //    如果 transform 只由本脚本控制，可以删掉这行。
             _position = transform.position;
 
             // 1. 碰撞检测
@@ -128,19 +140,20 @@ namespace Platformer
         #region Physics Event Handlers
         private void HandleLanded()
         {
-            if (playerVelocity.y < 0f)
-                playerVelocity.y = 0f;
+            playerVelocity.y = 0f;
+            dashCount = movementStats.dashToConsume;
         }
 
         private void HandleLeftGround()
         {
+            if (jumpTimer.IsRunning) return;
+            
             jumpCoyoteTimer.Start();
         }
 
         private void HandleHitCeiling()
         {
             jumpTimer.Stop();
-            playerVelocity.y = 0f;
         }
         #endregion
 
@@ -148,10 +161,12 @@ namespace Platformer
         private void SetTimers()
         {
             jumpTimer       = new CountdownTimer(movementStats.JumpDuration);
+            jumpCDTimer       = new CountdownTimer(movementStats.jumpCD);
             jumpCoyoteTimer = new CountdownTimer(movementStats.jumpCoyoteDuration);
             jumpBufferTimer = new CountdownTimer(movementStats.jumpBufferDuration);
+            dashTimer       = new CountdownTimer(movementStats.dashDuration);
 
-            timers = new List<Timer> { jumpTimer, jumpCoyoteTimer, jumpBufferTimer };
+            timers = new List<Timer> { jumpTimer, jumpCDTimer, jumpCoyoteTimer, jumpBufferTimer,  dashTimer };
         }
 
         private void SetStateMachine()
@@ -161,22 +176,33 @@ namespace Platformer
             var locomotionState = new LocomotionState(this, animator);
             var jumpState       = new JumpState(this, animator);
             var airState        = new AirState(this, animator);
+            var dashState = new DashState(this, animator);
+            var wallState = new WallState(this, animator);
 
             At(locomotionState, jumpState, new FuncPredicate(CanJump));
             At(locomotionState, airState,  new FuncPredicate(ReturnToAir));
             At(jumpState,       airState,  new FuncPredicate(() => !jumpTimer.IsRunning));
-            At(airState,        jumpState, new FuncPredicate(CanCoyoteJump));
+            At(airState,        jumpState, new FuncPredicate(() => CanCoyoteJump() || CanJump()));
+            At(dashState, locomotionState, new FuncPredicate(() => !dashTimer.IsRunning && isGrounded));
+            At(dashState, airState, new FuncPredicate(() => !dashTimer.IsRunning && !isGrounded));
 
             Any(locomotionState, new FuncPredicate(ReturnToLocomotionState));
+            Any(dashState, new FuncPredicate(() => dashTimer.IsRunning));
 
             stateMachine.SetState(locomotionState);
         }
 
-        private bool ReturnToLocomotionState() =>
-            isGrounded && !jumpTimer.IsRunning && !jumpBufferTimer.IsRunning;
+        private bool ReturnToLocomotionState()
+        {
+            return isGrounded && !jumpTimer.IsRunning && !jumpBufferTimer.IsRunning && !dashTimer.IsRunning;
+        }
 
         private bool ReturnToAir()    => !isGrounded && !jumpTimer.IsRunning;
-        private bool CanJump()        => jumpBufferTimer.IsRunning && isGrounded && !jumpTimer.IsRunning;
+        private bool CanJump()
+        {
+            return jumpBufferTimer.IsRunning && isGrounded && !jumpTimer.IsRunning && !jumpCDTimer.IsRunning;
+        }
+
         private bool CanCoyoteJump()  => jumpBufferTimer.IsRunning && jumpCoyoteTimer.IsRunning && !jumpTimer.IsRunning;
 
         private void HandleTimers()
@@ -192,19 +218,75 @@ namespace Platformer
         }
         #endregion
 
+        #region Dash
+        public void HandleDash()
+        {
+            var dashDir = movement != Vector2.zero ? movement.normalized : faceDir;
+            playerVelocity = dashDir * movementStats.dashSpeed;
+        }
+
+        public void ApplyInitialDashStats()
+        {
+            canCorrection = true;
+        }
+
+        public void ApplyEndOfDashStats()
+        {
+            canCorrection = false;
+            playerVelocity = Vector2.zero;
+            if (isGrounded) dashCount = movementStats.dashToConsume;
+        }
+        
+        private void OnDash(bool performed)
+        {
+            if (performed && dashCount > 0)
+            {
+                dashCount--;
+                dashTimer.Start();
+            }
+        }
+        #endregion
+
+        #region Wall Grab & Climb & Slide & Jump
+
+        public void HandleWallJump()
+        {
+            
+        }
+
+        public void HandleWallSlide()
+        {
+            
+        }
+
+        public void ApplyInitialWallStats()
+        {
+            
+        }
+
+        public void ApplyEndOfWallStats()
+        {
+            
+        }
+        
+        private void OnGrab(bool performed)
+        {
+            if (performed)
+            {
+                isGrabPerformed = true;
+            }
+            else
+            {
+                isGrabPerformed = false;
+            }
+        }
+        
+
+        #endregion
+        
         #region Jump
-
-        // 记录是否提前松开了跳跃键（用于下落段选择重力倍率）
-        private bool _jumpEndedEarly;
-
         public void HandleJump()
         {
-            // ── 阶段一：jumpTimer 运行中 = 上升段 ─────────────────
-            // PlayerMovementStats 的物理模型：
-            //   v0 = 2h / t_apex，g = -2h / t_apex²
-            // 意味着从 v0 开始每帧施加一次 g，经过 t_apex 秒后速度恰好为 0。
-            // jumpTimer 时长 = timeTillJumpApex + jumpApexDuration，
-            // 当剩余时间 ≤ jumpApexDuration 时进入顶点悬停（速度清零）。
             if (jumpTimer.IsRunning)
             {
                 // 顶点悬停窗口：强制清零 Y 速度，制造短暂飘浮感
@@ -215,12 +297,10 @@ namespace Platformer
                 }
 
                 // 上升段：施加基础重力（负值），速度从 v0 逐渐减小趋向 0
-                // 与可视化公式 displacement += 0.5 * g * t² 对应
                 playerVelocity.y += movementStats.Gravity * Time.fixedDeltaTime;
                 return;
             }
 
-            // ── 阶段二：jumpTimer 已停止 = 下落段 ─────────────────
             // 限制最大下落速度
             if (playerVelocity.y <= movementStats.maxFallSpeed)
             {
@@ -228,10 +308,7 @@ namespace Platformer
                 return;
             }
 
-            // 根据是否提前松键选择重力倍率：
-            //   提前松键（_jumpEndedEarly）→ jumpEndEarlyGravityModifier（更强，短跳）
-            //   自然下落                   → gravityMultiplier（正常下落手感）
-            float multiplier = _jumpEndedEarly
+            float multiplier = jumpEndedEarly
                 ? movementStats.jumpEndEarlyGravityModifier
                 : movementStats.gravityMultiplier;
 
@@ -243,32 +320,47 @@ namespace Platformer
             if (performed)
             {
                 jumpBufferTimer.Start();
-                _jumpEndedEarly = false;   // 新一次起跳，重置标志
+                jumpEndedEarly = false;
             }
             else if (jumpTimer.IsRunning)
             {
-                // 提前松键：停止 jumpTimer，让下落段用更强重力
                 jumpTimer.Stop();
-                _jumpEndedEarly = true;
+                jumpEndedEarly = true;
             }
         }
 
-        public void ApplyInitialJumpVelocity()
+        public void ApplyInitialJumpStats()
         {
             playerVelocity.y = movementStats.InitialJumpVelocity;
             jumpTimer.Start();
+            jumpCDTimer.Start();
             jumpCoyoteTimer.Stop();
             jumpBufferTimer.Stop();
+            
+            canCorrection = true;
+        }
+
+        public void ApplyEndOfJumpStats()
+        {
+            canCorrection = false;
         }
         #endregion
 
         #region Horizontal
         public void HandleMovement()
         {
-            playerVelocity.x = movement.x * movementStats.runSpeed;
+            faceDir = movement.x != 0 ? new Vector2(Mathf.Sign(movement.x), 0f) : faceDir;
+            
+            float targetVelocityX = movement.x * movementStats.runSpeed;
+    
+            float acceleration = (Mathf.Abs(movement.x) > 0.01f)
+                ? movementStats.acceleration
+                : movementStats.deceleration;
+    
+            playerVelocity.x = Mathf.MoveTowards(playerVelocity.x, targetVelocityX, acceleration * Time.fixedDeltaTime);
         }
         #endregion
-
+        
         #region Pixel Movement
 
         private void ApplyMovement()
@@ -282,11 +374,66 @@ namespace Platformer
 
         private Vector2 GetCheckCenter(Vector2 nextPos)
         {
-            return nextPos + physicCheck.col.offset;
+            return nextPos + physicCheck.ColOffset;
         }
 
-        // 用 col.size 代替 col.bounds.size，不依赖物理引擎刷新
-        private Vector2 CheckSize => physicCheck.col.size - Vector2.one * SkinWidth;
+        private Vector2 CheckSize => physicCheck.ColSize - Vector2.one * SkinWidth;
+
+        private bool TryCornerCorrectionX(int sign)
+        {
+            if (!canCorrection) return false;
+            for (int i = 1; i <= movementStats.maxCorrection; i++)
+            {
+                // 分别尝试向上、向下偏移 i px
+                for (int dir = -1; dir <= 1; dir += 2)
+                {
+                    float offsetY = dir * i / (float)PPU;
+                    Vector2 testPos = _position + new Vector2(sign / (float)PPU, offsetY);
+
+                    Vector2 checkCenter = GetCheckCenter(testPos);
+                    bool canMove = !Physics2D.OverlapBox(
+                        checkCenter, CheckSize, 0f, physicCheck.groundLayer);
+
+                    if (canMove)
+                    {
+                        // 垂直方向同步修正 remainder，避免下一帧抖动
+                        yRemainder = 0f;
+                        _position  = new Vector2(_position.x, _position.y + offsetY);
+                        return true;
+                    }
+                }
+            }
+            
+            return false;
+        }
+        
+        private bool TryCornerCorrectionY(int sign)
+        {
+            if (!canCorrection) return false;
+            for (int i = 1; i <= movementStats.maxCorrection; i++)
+            {
+                // 分别尝试向左、向右偏移 i px
+                for (int dir = -1; dir <= 1; dir += 2)
+                {
+                    float offsetX = dir * i / (float)PPU;
+                    Vector2 testPos = _position + new Vector2(offsetX, sign / (float)PPU);
+
+                    Vector2 checkCenter = GetCheckCenter(testPos);
+                    bool canMove = !Physics2D.OverlapBox(
+                        checkCenter, CheckSize, 0f, physicCheck.groundLayer);
+
+                    if (canMove)
+                    {
+                        // 水平方向同步修正 remainder，避免下一帧抖动
+                        xRemainder = 0f;
+                        _position  = new Vector2(_position.x + offsetX, _position.y);
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
 
         /// <summary>水平像素移动，每步 1px（1/PPU Unit）。</summary>
         private void MoveX(float amount, Action onCollide)
@@ -317,6 +464,12 @@ namespace Platformer
                 }
                 else
                 {
+                    if (TryCornerCorrectionX(sign))
+                    {
+                        // 修正成功，继续剩余的水平移动
+                        move -= sign;
+                        continue;
+                    }
                     onCollide?.Invoke();
                     xRemainder = 0f;
                     break;
@@ -353,6 +506,12 @@ namespace Platformer
                 }
                 else
                 {
+                    if (TryCornerCorrectionY(sign))
+                    {
+                        // 修正成功，继续剩余的垂直移动
+                        move -= sign;
+                        continue;
+                    }
                     onCollide?.Invoke();
                     yRemainder = 0f;
                     break;
@@ -368,13 +527,13 @@ namespace Platformer
 
         private void OnDrawGizmos()
         {
-            if (physicCheck == null || physicCheck.col == null) return;
+            if (physicCheck == null) return;
 
             Vector2 origin = Application.isPlaying ? _position : (Vector2)transform.position;
 
             // 绿色：当前碰撞盒
             Gizmos.color = Color.green;
-            Gizmos.DrawWireCube(origin + physicCheck.col.offset, CheckSize);
+            Gizmos.DrawWireCube(origin + physicCheck.ColOffset, CheckSize);
 
             if (!Application.isPlaying) return;
 
