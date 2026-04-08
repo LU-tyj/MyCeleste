@@ -40,6 +40,25 @@ namespace Platformer
         private bool isWall;
         private bool isGrabPerformed = false;
 
+        // ── 墙壁状态 ──────────────────────────────────────────────
+        /// <summary>当前紧贴的墙壁方向（+1 右，-1 左，0 无）</summary>
+        public int WallDir { get; private set; }
+        /// <summary>角色是否面朝墙壁方向</summary>
+        public bool IsFacingWall => WallDir != 0 && faceDir.x == WallDir;
+        /// <summary>角色是否面朝墙壁外侧</summary>
+        public bool IsFacingAwayFromWall => WallDir != 0 && faceDir.x == -WallDir;
+
+        // ── 体力系统 ──────────────────────────────────────────────
+        private float currentStamina;
+        /// <summary>体力耗尽时为 true，下滑阻力不断减小</summary>
+        private bool isExhausted;
+        /// <summary>供 UI / Debug 读取当前体力（0~1 归一化）</summary>
+        public float StaminaNormalized => currentStamina / movementStats.maxStamina;
+
+        // ── 蹬墙跳锁定 ────────────────────────────────────────────
+        /// <summary>蹬墙跳后短暂禁止重新抓墙，避免立即重进 GrabState</summary>
+        private CountdownTimer wallJumpLockTimer;
+
         // ── 像素移动 ──────────────────────────────────────────────
         private const int PPU = 32;
         private const float SkinWidth = 0.02f;
@@ -116,6 +135,7 @@ namespace Platformer
             physicCheck.CheckCollisions();
             isGrounded = physicCheck.IsGrounded;
             isCeil     = physicCheck.IsCeil;
+            WallDir    = physicCheck.WallDirection;
 
             // 2. 状态机物理更新
             stateMachine.FixedUpdate();
@@ -142,6 +162,9 @@ namespace Platformer
         {
             playerVelocity.y = 0f;
             dashCount = movementStats.dashToConsume;
+            // 落地恢复体力
+            currentStamina = movementStats.maxStamina;
+            isExhausted    = false;
         }
 
         private void HandleLeftGround()
@@ -165,8 +188,9 @@ namespace Platformer
             jumpCoyoteTimer = new CountdownTimer(movementStats.jumpCoyoteDuration);
             jumpBufferTimer = new CountdownTimer(movementStats.jumpBufferDuration);
             dashTimer       = new CountdownTimer(movementStats.dashDuration);
+            wallJumpLockTimer = new CountdownTimer(0.25f);   // 蹬墙跳后 0.25s 内不能重新抓墙
 
-            timers = new List<Timer> { jumpTimer, jumpCDTimer, jumpCoyoteTimer, jumpBufferTimer,  dashTimer };
+            timers = new List<Timer> { jumpTimer, jumpCDTimer, jumpCoyoteTimer, jumpBufferTimer, dashTimer, wallJumpLockTimer };
         }
 
         private void SetStateMachine()
@@ -176,18 +200,31 @@ namespace Platformer
             var locomotionState = new LocomotionState(this, animator);
             var jumpState       = new JumpState(this, animator);
             var airState        = new AirState(this, animator);
-            var dashState = new DashState(this, animator);
-            var wallState = new WallState(this, animator);
+            var dashState       = new DashState(this, animator);
+            var wallState       = new WallState(this, animator);
+            var grabState       = new GrabState(this, animator);
 
             At(locomotionState, jumpState, new FuncPredicate(CanJump));
             At(locomotionState, airState,  new FuncPredicate(ReturnToAir));
             At(jumpState,       airState,  new FuncPredicate(() => !jumpTimer.IsRunning));
             At(airState,        jumpState, new FuncPredicate(() => CanCoyoteJump() || CanJump()));
             At(dashState, locomotionState, new FuncPredicate(() => !dashTimer.IsRunning && isGrounded));
-            At(dashState, airState, new FuncPredicate(() => !dashTimer.IsRunning && !isGrounded));
+            At(dashState, airState,        new FuncPredicate(() => !dashTimer.IsRunning && !isGrounded));
+
+            // ── 墙壁相关 ──────────────────────────────────────────
+            // Slide：空中 + 紧贴墙 + 朝墙移动 + 没按抓墙 + 无蹬墙跳锁定 → WallState
+            At(airState, wallState, new FuncPredicate(CanEnterWallSlide));
+            // Grab：空中 + 紧贴墙 + 按下抓墙键 + 无蹬墙跳锁定 → GrabState
+            At(airState,  grabState, new FuncPredicate(CanEnterGrab));
+            At(wallState, grabState, new FuncPredicate(CanEnterGrab));
+            // 从 GrabState 切换回 Slide
+            At(grabState, wallState, new FuncPredicate(() => !isGrabPerformed && CanEnterWallSlide()));
+            // 离墙 → 回到空中
+            At(wallState, airState, new FuncPredicate(() => !physicCheck.IsWall || isGrounded));
+            At(grabState, airState, new FuncPredicate(() => !physicCheck.IsWall || isGrounded));
 
             Any(locomotionState, new FuncPredicate(ReturnToLocomotionState));
-            Any(dashState, new FuncPredicate(() => dashTimer.IsRunning));
+            Any(dashState,       new FuncPredicate(() => dashTimer.IsRunning));
 
             stateMachine.SetState(locomotionState);
         }
@@ -204,6 +241,14 @@ namespace Platformer
         }
 
         private bool CanCoyoteJump()  => jumpBufferTimer.IsRunning && jumpCoyoteTimer.IsRunning && !jumpTimer.IsRunning;
+
+        // ── 墙壁状态判断 ──────────────────────────────────────────
+        private bool CanEnterWallSlide() =>
+            physicCheck.IsWall && !isGrabPerformed && !wallJumpLockTimer.IsRunning &&
+            movement.x != 0 && Mathf.Sign(movement.x) == physicCheck.WallDirection;
+
+        private bool CanEnterGrab() =>
+            !isGrounded && physicCheck.IsWall && isGrabPerformed && !wallJumpLockTimer.IsRunning;
 
         private void HandleTimers()
         {
@@ -234,6 +279,8 @@ namespace Platformer
         {
             canCorrection = false;
             playerVelocity = Vector2.zero;
+            playerVelocity.x = Mathf.MoveTowards(playerVelocity.x, 0, movementStats.acceleration * Time.fixedDeltaTime);
+            playerVelocity.y = Mathf.MoveTowards(playerVelocity.y, 0, movementStats.acceleration * Time.fixedDeltaTime);
             if (isGrounded) dashCount = movementStats.dashToConsume;
         }
         
@@ -249,24 +296,142 @@ namespace Platformer
 
         #region Wall Grab & Climb & Slide & Jump
 
-        public void HandleWallJump()
-        {
-            
-        }
-
+        // ── WallState（Slide）────────────────────────────────────
         public void HandleWallSlide()
         {
-            
+            // 减速下滑：将 Y 速度朝 wallSlideSpeed 靠拢
+            playerVelocity.x = 0f;
+            playerVelocity.y = Mathf.MoveTowards(
+                playerVelocity.y,
+                movementStats.wallSlideSpeed,
+                movementStats.deceleration * Time.fixedDeltaTime);
+        }
+
+        public void HandleWallJump()
+        {
+            // WallState 下也可蹬墙跳（朝外按跳键）
+            if (!jumpBufferTimer.IsRunning) return;
+            if (!IsFacingAwayFromWall)      return;
+
+            PerformWallJump();
         }
 
         public void ApplyInitialWallStats()
         {
-            
+            playerVelocity.x = 0f;
         }
 
-        public void ApplyEndOfWallStats()
+        public void ApplyEndOfWallStats() { }
+
+        // ── GrabState（抓墙 / 爬墙）────────────────────────────
+        /// <summary>进入 GrabState 时调用：初始化体力、清零速度。</summary>
+        public void ApplyInitialGrabStats()
         {
-            
+            // 若还有体力就保留，让连续爬墙能持续扣除
+            if (currentStamina <= 0f)
+            {
+                isExhausted    = true;
+                currentStamina = 0f;
+            }
+            playerVelocity = Vector2.zero;
+        }
+
+        /// <summary>离开 GrabState 时调用。</summary>
+        public void ApplyEndOfGrabStats() { }
+
+        /// <summary>GrabState 每帧 FixedUpdate 调用：处理爬墙 + 体力消耗 + 蹬墙跳。</summary>
+        public void HandleGrab()
+        {
+            playerVelocity.x = 0f;   // 始终贴墙
+
+            if (isExhausted)
+            {
+                // 体力耗尽：下滑阻力逐渐减小，速度趋向 wallExhaustedSlideSpeed
+                playerVelocity.y = Mathf.Lerp(
+                    playerVelocity.y,
+                    movementStats.wallExhaustedSlideSpeed,
+                    movementStats.exhaustedLerpSpeed * Time.fixedDeltaTime);
+                return;
+            }
+
+            // ── 体力充足时 ──────────────────────────────────────
+            float drain;
+            float targetY;
+
+            if (movement.y > 0.1f)           // 按上：向上爬
+            {
+                targetY = movementStats.wallClimbSpeed;
+                drain   = movementStats.staminaDrainClimb;
+            }
+            else if (movement.y < -0.1f)     // 按下：主动往下
+            {
+                targetY = movementStats.wallCreepDownSpeed;
+                drain   = movementStats.staminaDrainHold;
+            }
+            else                             // 静止悬挂
+            {
+                targetY = 0f;
+                drain   = movementStats.staminaDrainHold;
+            }
+
+            playerVelocity.y = Mathf.MoveTowards(
+                playerVelocity.y, targetY,
+                movementStats.acceleration * Time.fixedDeltaTime);
+
+            // 消耗体力
+            currentStamina -= drain * Time.fixedDeltaTime;
+            if (currentStamina <= 0f)
+            {
+                currentStamina = 0f;
+                isExhausted    = true;
+            }
+
+            // ── 蹬墙跳 ──────────────────────────────────────────
+            HandleGrabJump();
+        }
+
+        private void HandleGrabJump()
+        {
+            if (!jumpBufferTimer.IsRunning) return;
+
+            if (IsFacingAwayFromWall)
+            {
+                // 面朝外：蹬墙跳，解除抓墙
+                PerformWallJump();
+            }
+            else
+            {
+                // 面朝墙 / 面朝上：原地向上弹跳，消耗额外体力
+                if (!isExhausted)
+                {
+                    currentStamina = Mathf.Max(0f, currentStamina - movementStats.wallJumpStaminaCost);
+                    if (currentStamina <= 0f) isExhausted = true;
+                }
+                // 给一个向上的速度，利用普通跳跃 timer
+                playerVelocity.y = movementStats.InitialJumpVelocity;
+                jumpTimer.Start();
+                jumpCDTimer.Start();
+                jumpBufferTimer.Stop();
+            }
+        }
+
+        /// <summary>蹬墙跳：给予向外水平速度 + 纵向速度，启动跳跃 timer。</summary>
+        private void PerformWallJump()
+        {
+            // 水平方向：朝墙外
+            playerVelocity.x = -WallDir * movementStats.wallJumpHorizontalSpeed;
+            playerVelocity.y  = movementStats.InitialJumpVelocity * movementStats.wallJumpVerticalMultiplier;
+
+            jumpTimer.Start();
+            jumpCDTimer.Start();
+            jumpCoyoteTimer.Stop();
+            jumpBufferTimer.Stop();
+
+            // 蹬墙跳锁定：短暂禁止重新进入 WallState / GrabState
+            wallJumpLockTimer.Start();
+
+            // 更新朝向为墙外
+            faceDir = new Vector2(-WallDir, 0f);
         }
         
         private void OnGrab(bool performed)

@@ -11,9 +11,18 @@ namespace Platformer
         public LayerMask groundLayer;
         [SerializeField] private float groundCheckDistance = 0.05f;
         [SerializeField] private float ceilCheckDistance   = 0.05f;
+        [SerializeField] private float wallCheckDistance   = 0.05f;
 
-        public bool IsGrounded { get; private set; }
-        public bool IsCeil     { get; private set; }
+        public bool IsGrounded  { get; private set; }
+        public bool IsCeil      { get; private set; }
+        /// <summary>左侧紧贴墙壁</summary>
+        public bool IsWallLeft  { get; private set; }
+        /// <summary>右侧紧贴墙壁</summary>
+        public bool IsWallRight { get; private set; }
+        /// <summary>任意一侧紧贴墙壁</summary>
+        public bool IsWall => IsWallLeft || IsWallRight;
+        /// <summary>紧贴的墙壁方向（-1 左，+1 右，0 无）</summary>
+        public int WallDirection => IsWallRight ? 1 : IsWallLeft ? -1 : 0;
 
         public event System.Action OnLanded;
         public event System.Action OnLeftGround;
@@ -50,6 +59,17 @@ namespace Platformer
             bool ceilHit = Physics2D.BoxCast(
                 ColCenter, ColSize, 0f,
                 Vector2.up, ceilCheckDistance, groundLayer);
+
+            bool wallLeftHit = Physics2D.BoxCast(
+                ColCenter, ColSize, 0f,
+                Vector2.left, wallCheckDistance, groundLayer);
+
+            bool wallRightHit = Physics2D.BoxCast(
+                ColCenter, ColSize, 0f,
+                Vector2.right, wallCheckDistance, groundLayer);
+
+            IsWallLeft  = wallLeftHit;
+            IsWallRight = wallRightHit;
 
             // ── 天花板 ──────────────────────────────────────────
             if (!IsCeil && ceilHit)

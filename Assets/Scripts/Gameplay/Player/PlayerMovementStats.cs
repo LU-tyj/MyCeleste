@@ -20,6 +20,37 @@ namespace Platformer
         public int dashToConsume = 1;
 
         // ─────────────────────────────────────────────
+        //  Wall
+        // ─────────────────────────────────────────────
+        [Header("Wall — Slide")]
+        [Tooltip("Slide 状态下的下滑速度（负值）")]
+        public float wallSlideSpeed = -2f;
+
+        [Header("Wall — Grab & Climb")]
+        [Tooltip("抓墙时向上爬的速度")]
+        public float wallClimbSpeed = 3f;
+        [Tooltip("抓墙时向下爬的速度（负值）")]
+        public float wallCreepDownSpeed = -1.5f;
+        [Tooltip("最大体力值")]
+        public float maxStamina = 100f;
+        [Tooltip("每秒体力消耗：静止抓墙")]
+        public float staminaDrainHold = 10f;
+        [Tooltip("每秒体力消耗：向上爬")]
+        public float staminaDrainClimb = 25f;
+        [Tooltip("体力耗尽后下滑速度逐渐趋向的最大值（负值）")]
+        public float wallExhaustedSlideSpeed = -8f;
+        [Tooltip("体力耗尽后速度加速趋向的插值速度")]
+        public float exhaustedLerpSpeed = 2f;
+
+        [Header("Wall — Wall Jump")]
+        [Tooltip("向墙外蹬墙跳时的水平速度")]
+        public float wallJumpHorizontalSpeed = 8f;
+        [Tooltip("向墙外蹬墙跳时的纵向速度倍率（相对于普通跳跃 InitialJumpVelocity）")]
+        [Range(0.5f, 1.5f)] public float wallJumpVerticalMultiplier = 0.9f;
+        [Tooltip("向上跳墙时消耗的额外体力")]
+        public float wallJumpStaminaCost = 30f;
+
+        // ─────────────────────────────────────────────
         //  Jump Design Parameters（设计参数，驱动所有运行时值）
         // ─────────────────────────────────────────────
         [Header("Jump — Design Parameters")]
